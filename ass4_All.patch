@@ -1,0 +1,857 @@
+Index: usertests.c
+===================================================================
+--- usertests.c	(revision 3)
++++ usertests.c	(working copy)
+@@ -1424,41 +1424,24 @@
+ {
+   printf(1, "usertests starting\n");
+ 
+-  if(open("usertests.ran", 0) >= 0){
+-    printf(1, "already ran user tests -- rebuild fs.img\n");
+-    exit();
+-  }
+-  close(open("usertests.ran", O_CREATE));
++  if (rename("a", "b", "c")<0)
++	printf(1, "failed\n");
++  else
++	printf(1, "good\n");
++ 
++  printf(1, "usertests ended\n");
++  exit();
++}
+ 
+-  sbrktest();
+-  validatetest();
+ 
+-  opentest();
+-  writetest();
+-  writetest1();
+-  createtest();
+ 
+-  mem();
+-  pipe1();
+-  preempt();
+-  exitwait();
+ 
+-  rmdot();
+-  fourteen();
+-  bigfile();
+-  subdir();
+-  concreate();
+-  linktest();
+-  unlinkread();
+-  createdelete();
+-  twofiles();
+-  sharedfd();
+-  dirfile();
+-  iref();
+-  forktest();
+-  bigdir(); // slow
+ 
+-  exectest();
+ 
+-  exit();
+-}
++
++
++
++
++
++
++
+Index: user.h
+===================================================================
+--- user.h	(revision 3)
++++ user.h	(working copy)
+@@ -23,6 +23,8 @@
+ int sleep(int);
+ int uptime();
+ 
++int rename(char*,char*,char*);
++
+ // ulib.c
+ int stat(char*, struct stat*);
+ char* strcpy(char*, char*);
+Index: Makefile
+===================================================================
+--- Makefile	(revision 3)
++++ Makefile	(working copy)
+@@ -73,6 +73,10 @@
+ OBJDUMP = $(TOOLPREFIX)objdump
+ CFLAGS = -fno-pic -static -fno-builtin -fno-strict-aliasing -O2 -Wall -MD -ggdb -m32 -Werror
+ CFLAGS += $(shell $(CC) -fno-stack-protector -E -x c /dev/null >/dev/null 2>&1 && echo -fno-stack-protector)
++ifndef SRPPrint
++	SRPPrint = FALSE
++endif
++CFLAGS += -D$(SRPPrint)
+ ASFLAGS = -m32 -gdwarf-2
+ # FreeBSD ld wants ``elf_i386_fbsd''
+ LDFLAGS += -m $(shell $(LD) -V | grep elf_i386 2>/dev/null)
+@@ -143,6 +147,9 @@
+ 	_sh\
+ 	_wc\
+ 	_zombie\
++	_check1\
++	_check2\
++	_createFiles\
+ 
+ fs.img: mkfs README $(UPROGS)
+ 	./mkfs fs.img README $(UPROGS)
+Index: check1.c
+===================================================================
+--- check1.c	(revision 0)
++++ check1.c	(revision 0)
+@@ -0,0 +1,58 @@
++#include "types.h"
++#include "stat.h"
++#include "user.h"
++#include "fs.h"
++#include "fcntl.h"
++
++int
++main(int argc, char *argv[]){
++
++int i;
++int fd;
++char *filename1;
++char *filename2;
++char *filename3;
++char buff1 [11];
++
++filename1 = "a.txt";
++filename2 = "b.txt";
++filename3 = "c.txt";
++
++buff1[0]='a';
++fd=open(filename1,O_RDWR |  O_CREATE);
++for(i =0; i<6;i++)
++    write(fd,buff1,1);
++close(fd);
++
++buff1[0]='b';
++fd=open(filename2,O_RDWR |  O_CREATE);
++for(i =0; i<600;i++)
++    write(fd,buff1,1);
++close(fd);
++
++buff1[0]='c';
++fd=open(filename3,O_RDWR |  O_CREATE);
++for(i =0; i<6000;i++)
++    write(fd,buff1,1);
++close(fd);
++
++char buff2 [6];
++fd=open(filename1,O_RDWR);//get to beggining of file
++for(i =0; i<6;i++)
++    read(fd,buff2,6);
++close(fd);
++
++char buff3 [600];
++fd=open(filename2,O_RDWR);//get to beggining of file
++for(i =0; i<600;i++)
++    read(fd,buff3,600);
++close(fd);
++
++char buff4 [6000];
++fd=open(filename3,O_RDWR);//get to beggining of file
++for(i =0; i<6000;i++)
++    read(fd,buff4,6000);
++close(fd);
++
++exit();
++} 
+Index: forktest.c
+===================================================================
+--- forktest.c	(revision 3)
++++ forktest.c	(working copy)
+@@ -51,6 +51,11 @@
+ int
+ main(void)
+ {
+-  forktest();
++  printf(1, "forktests starting\n");
++  if (rename("a", "b", "c")<0)
++	printf(1, "failed\n");
++  else
++	printf(1, "good\n"); 
++  printf(1, "forktests ended\n");  
+   exit();
+ }
+Index: fs.c
+===================================================================
+--- fs.c	(revision 3)
++++ fs.c	(working copy)
+@@ -30,7 +30,7 @@
+ {
+   struct buf *bp;
+   
+-  bp = bread(dev, 1);
++  bp = bread(dev, 1, -2);
+   memmove(sb, bp->data, sizeof(*sb));
+   brelse(bp);
+ }
+@@ -41,7 +41,7 @@
+ {
+   struct buf *bp;
+   
+-  bp = bread(dev, bno);
++  bp = bread(dev, bno, -3);
+   memset(bp->data, 0, BSIZE);
+   bwrite(bp);
+   brelse(bp);
+@@ -60,7 +60,7 @@
+   bp = 0;
+   readsb(dev, &sb);
+   for(b = 0; b < sb.size; b += BPB){
+-    bp = bread(dev, BBLOCK(b, sb.ninodes));
++    bp = bread(dev, BBLOCK(b, sb.ninodes), -4);
+     for(bi = 0; bi < BPB; bi++){
+       m = 1 << (bi % 8);
+       if((bp->data[bi/8] & m) == 0){  // Is block free?
+@@ -86,7 +86,7 @@
+   bzero(dev, b);
+ 
+   readsb(dev, &sb);
+-  bp = bread(dev, BBLOCK(b, sb.ninodes));
++  bp = bread(dev, BBLOCK(b, sb.ninodes), -5);
+   bi = b % BPB;
+   m = 1 << (bi % 8);
+   if((bp->data[bi/8] & m) == 0)
+@@ -153,7 +153,7 @@
+ 
+   readsb(dev, &sb);
+   for(inum = 1; inum < sb.ninodes; inum++){  // loop over inode blocks
+-    bp = bread(dev, IBLOCK(inum));
++    bp = bread(dev, IBLOCK(inum), -6);
+     dip = (struct dinode*)bp->data + inum%IPB;
+     if(dip->type == 0){  // a free inode
+       memset(dip, 0, sizeof(*dip));
+@@ -174,7 +174,7 @@
+   struct buf *bp;
+   struct dinode *dip;
+ 
+-  bp = bread(ip->dev, IBLOCK(ip->inum));
++  bp = bread(ip->dev, IBLOCK(ip->inum), ip->inum);
+   dip = (struct dinode*)bp->data + ip->inum%IPB;
+   dip->type = ip->type;
+   dip->major = ip->major;
+@@ -249,7 +249,7 @@
+   release(&icache.lock);
+ 
+   if(!(ip->flags & I_VALID)){
+-    bp = bread(ip->dev, IBLOCK(ip->inum));
++    bp = bread(ip->dev, IBLOCK(ip->inum), ip->inum);
+     dip = (struct dinode*)bp->data + ip->inum%IPB;
+     ip->type = dip->type;
+     ip->major = dip->major;
+@@ -333,7 +333,7 @@
+     // Load indirect block, allocating if necessary.
+     if((addr = ip->addrs[NDIRECT]) == 0)
+       ip->addrs[NDIRECT] = addr = balloc(ip->dev);
+-    bp = bread(ip->dev, addr);
++    bp = bread(ip->dev, addr, ip->inum);
+     a = (uint*)bp->data;
+     if((addr = a[bn]) == 0){
+       a[bn] = addr = balloc(ip->dev);
+@@ -364,7 +364,7 @@
+   }
+   
+   if(ip->addrs[NDIRECT]){
+-    bp = bread(ip->dev, ip->addrs[NDIRECT]);
++    bp = bread(ip->dev, ip->addrs[NDIRECT], ip->inum);
+     a = (uint*)bp->data;
+     for(j = 0; j < NINDIRECT; j++){
+       if(a[j])
+@@ -409,7 +409,7 @@
+     n = ip->size - off;
+ 
+   for(tot=0; tot<n; tot+=m, off+=m, dst+=m){
+-    bp = bread(ip->dev, bmap(ip, off/BSIZE));
++    bp = bread(ip->dev, bmap(ip, off/BSIZE), ip->inum);
+     m = min(n - tot, BSIZE - off%BSIZE);
+     memmove(dst, bp->data + off%BSIZE, m);
+     brelse(bp);
+@@ -436,7 +436,7 @@
+     n = MAXFILE*BSIZE - off;
+ 
+   for(tot=0; tot<n; tot+=m, off+=m, src+=m){
+-    bp = bread(ip->dev, bmap(ip, off/BSIZE));
++    bp = bread(ip->dev, bmap(ip, off/BSIZE), ip->inum);
+     m = min(n - tot, BSIZE - off%BSIZE);
+     memmove(bp->data + off%BSIZE, src, m);
+     bwrite(bp);
+@@ -472,7 +472,7 @@
+     panic("dirlookup not DIR");
+ 
+   for(off = 0; off < dp->size; off += BSIZE){
+-    bp = bread(dp->dev, bmap(dp, off / BSIZE));
++    bp = bread(dp->dev, bmap(dp, off / BSIZE), dp->inum);
+     for(de = (struct dirent*)bp->data;
+         de < (struct dirent*)(bp->data + BSIZE);
+         de++){
+@@ -611,3 +611,6 @@
+ {
+   return namex(path, 1, name);
+ }
++
++
++
+Index: bio.c
+===================================================================
+--- bio.c	(revision 3)
++++ bio.c	(working copy)
+@@ -27,6 +27,11 @@
+ #include "spinlock.h"
+ #include "buf.h"
+ 
++#define I_PARAM		3
++
++int getInodeNum(int dev, int sector);
++
++
+ struct {
+   struct spinlock lock;
+   struct buf buf[NBUF];
+@@ -36,10 +41,114 @@
+   struct buf head;
+ } bcache;
+ 
++
++struct {
++  struct buf* arr[NBUF];
++} bhash;
++
++/***************************************************************************************************/
++
++int countBlocks(uint dev, uint inodeNum) {
++  struct buf *b;
++  int count= 0;
++
++  if (inodeNum<0)
++    return 0;
++
++  for(b = bcache.head.prev; b != &bcache.head; b = b->prev) {
++    if (b->inodeNumber==inodeNum && dev==b->dev)
++      count++;
++  }
++  return count;
++}
++
++
++/***************************************************************************************************/
++
++int hashFunction(int dev, int sector) {
++  return (dev + sector) % NBUF;
++}
++
++/***************************************************************************************************/
++
++void print_buffer_cache() {
++  int i;
++  struct buf* b;
++
++  cprintf("BC={");
++  for (i=0; i<NBUF; i++) {
++    b= bhash.arr[i];
++    while (b!=0) {
++      cprintf("<%d,%d,%d>", b->dev, b->sector, b->inodeNumber);
++      b= b->hashNext;
++    }//while
++  }//for ii
++  cprintf("}\n");
++}
++
++
++/***************************************************************************************************/
++
++void hash_insert(struct buf* b) {
++  int hashIndex= hashFunction(b->dev, b->sector);
++  struct buf* temp= bhash.arr[hashIndex];
++  bhash.arr[hashIndex]= b;
++  b->hashNext= temp;
++
++  #ifdef TRUE
++    print_buffer_cache();
++  #endif
++}
++
++/***************************************************************************************************/
++
++void hash_delete(int dev, int sector) {
++  int hashIndex= hashFunction(dev, sector);  
++
++  struct buf* b= bhash.arr[hashIndex];
++  if (b==0)
++    return;
++
++  if (b->dev==dev && b->sector==sector) {
++    bhash.arr[hashIndex]= b->hashNext;
++    b->hashNext= 0;
++    return;
++  }
++
++  struct buf* temp= b;
++  while (temp->hashNext!=0) {
++    if (temp->hashNext->dev==dev && temp->hashNext->sector==sector) {
++      b= temp->hashNext;
++      temp->hashNext= b->hashNext;
++      b->hashNext= 0;
++      return;
++    }//if
++    temp= temp->hashNext;
++  }//while
++
++  return;
++}
++
++/***************************************************************************************************/
++
++struct buf* hash_find(uint dev, uint sector) {
++  int hashIndex= hashFunction(dev, sector);
++  struct buf* b= bhash.arr[hashIndex];
++  while (b!=0) {
++    if (b->dev==dev && b->sector==sector)
++      return b;
++    b= b->hashNext;
++  }//while
++  return b;
++}
++
++/***************************************************************************************************/
++
+ void
+ binit(void)
+ {
+   struct buf *b;
++  int i;
+ 
+   initlock(&bcache.lock, "bcache");
+ 
+@@ -50,60 +159,136 @@
+     b->next = bcache.head.next;
+     b->prev = &bcache.head;
+     b->dev = -1;
++    b->hashNext= 0;
++    b->inodeNumber= -1;
+     bcache.head.next->prev = b;
+     bcache.head.next = b;
+   }
++
++  // initializing the hash table
++  for (i=0; i<NBUF; i++) {
++    bhash.arr[i]= 0;
++  }//for i
+ }
+ 
++/***************************************************************************************************/
++
+ // Look through buffer cache for sector on device dev.
+ // If not found, allocate fresh block.
+ // In either case, return locked buffer.
+ static struct buf*
+-bget(uint dev, uint sector)
++bget2(uint dev, uint sector, uint inodeNum)
+ {
+   struct buf *b;
++  int oldDev, oldSector;
+ 
+-  acquire(&bcache.lock);
+-
+  loop:
+   // Try for cached block.
+-  for(b = bcache.head.next; b != &bcache.head; b = b->next){
+-    if(b->dev == dev && b->sector == sector){
++  b= hash_find(dev, sector);
++  if (b!=0) {
+       if(!(b->flags & B_BUSY)){
+         b->flags |= B_BUSY;
+-        release(&bcache.lock);
++	b->inodeNumber= inodeNum;
+         return b;
+       }
+       sleep(b, &bcache.lock);
+       goto loop;
+-    }
+   }
+ 
+   // Allocate fresh block.
+   for(b = bcache.head.prev; b != &bcache.head; b = b->prev){
+     if((b->flags & B_BUSY) == 0){
++      oldDev= b->dev;
++      oldSector= b->sector;
++      hash_delete(oldDev, oldSector);
+       b->dev = dev;
+       b->sector = sector;
+       b->flags = B_BUSY;
+-      release(&bcache.lock);
++      hash_insert(b);
++      b->inodeNumber= inodeNum;
+       return b;
+     }
+   }
+   panic("bget: no buffers");
+ }
+ 
++/***************************************************************************************************/
++
++static struct buf*
++bget3(uint dev, uint sector, uint inodeNum)
++{
++  struct buf *b;
++  int oldDev, oldSector;
++
++ loop:
++  // Try for cached block.
++  b= hash_find(dev, sector);
++  if (b!=0) {
++      if(!(b->flags & B_BUSY)){
++        b->flags |= B_BUSY;
++	b->inodeNumber= inodeNum;
++        return b;
++      }
++      sleep(b, &bcache.lock);
++      goto loop;
++  }
++
++  // Allocate fresh block.
++  for(b = bcache.head.prev; b != &bcache.head; b = b->prev){
++    if( ((b->flags & B_BUSY) == 0) && dev==b->dev && inodeNum==b->inodeNumber ){
++      oldDev= b->dev;
++      oldSector= b->sector;
++      hash_delete(oldDev, oldSector);
++      b->dev = dev;
++      b->sector = sector;
++      b->flags = B_BUSY;
++      hash_insert(b);
++      b->inodeNumber= inodeNum;
++      return b;
++    }
++  }
++  panic("bget: no buffers 222222222222222222222222222222222222222222");
++}
++
++/***************************************************************************************************/
++
++static struct buf*
++bget(uint dev, uint sector, uint inodeNum)
++{
++  static struct buf* b;
++
++  acquire(&bcache.lock);
++
++  if (I_PARAM<3)
++    b= bget2(dev, sector, inodeNum);
++  else {
++    if ( countBlocks(dev, inodeNum) < I_PARAM)
++      b= bget2(dev, sector, inodeNum);
++    else
++      b= bget3(dev, sector, inodeNum);
++  }//else
++
++  release(&bcache.lock);
++  
++  return b;
++}
++
++/***************************************************************************************************/
++
+ // Return a B_BUSY buf with the contents of the indicated disk sector.
+ struct buf*
+-bread(uint dev, uint sector)
++bread(uint dev, uint sector, uint inodeNum)
+ {
+   struct buf *b;
+ 
+-  b = bget(dev, sector);
++  b = bget(dev, sector, inodeNum);
+   if(!(b->flags & B_VALID))
+     iderw(b);
+   return b;
+ }
+ 
++/***************************************************************************************************/
++
+ // Write b's contents to disk.  Must be locked.
+ void
+ bwrite(struct buf *b)
+@@ -114,6 +299,8 @@
+   iderw(b);
+ }
+ 
++/***************************************************************************************************/
++
+ // Release the buffer b.
+ void
+ brelse(struct buf *b)
+@@ -136,3 +323,10 @@
+   release(&bcache.lock);
+ }
+ 
++
++
++
++
++
++
++
+Index: fs.h
+===================================================================
+--- fs.h	(revision 3)
++++ fs.h	(working copy)
+@@ -8,6 +8,8 @@
+ #define ROOTINO 1  // root i-number
+ #define BSIZE 512  // block size
+ 
++
++
+ // File system super block
+ struct superblock {
+   uint size;         // Size of file system image (blocks)
+@@ -49,3 +51,4 @@
+   char name[DIRSIZ];
+ };
+ 
++
+Index: syscall.c
+===================================================================
+--- syscall.c	(revision 3)
++++ syscall.c	(working copy)
+@@ -99,6 +99,8 @@
+ extern int sys_write(void);
+ extern int sys_uptime(void);
+ 
++extern int sys_rename(void);
++
+ static int (*syscalls[])(void) = {
+ [SYS_chdir]   sys_chdir,
+ [SYS_close]   sys_close,
+@@ -121,6 +123,8 @@
+ [SYS_wait]    sys_wait,
+ [SYS_write]   sys_write,
+ [SYS_uptime]  sys_uptime,
++
++[SYS_rename]  sys_rename,
+ };
+ 
+ void
+Index: syscall.h
+===================================================================
+--- syscall.h	(revision 3)
++++ syscall.h	(working copy)
+@@ -20,3 +20,5 @@
+ #define SYS_sbrk   19
+ #define SYS_sleep  20
+ #define SYS_uptime 21
++
++#define SYS_rename 22
+Index: usys.S
+===================================================================
+--- usys.S	(revision 3)
++++ usys.S	(working copy)
+@@ -29,3 +29,5 @@
+ SYSCALL(sbrk)
+ SYSCALL(sleep)
+ SYSCALL(uptime)
++
++SYSCALL(rename)
+Index: check2.c
+===================================================================
+--- check2.c	(revision 0)
++++ check2.c	(revision 0)
+@@ -0,0 +1,58 @@
++#include "types.h"
++#include "stat.h"
++#include "user.h"
++#include "fs.h"
++#include "fcntl.h"
++
++int
++main(int argc, char *argv[]){
++
++
++int fd1,fd2,fd3;
++int amount;
++char *filename1;
++char *filename2;
++char *filename3;
++int flag1;
++int flag2;
++int flag3;
++
++filename1 = "a.txt";
++filename2 = "b.txt";
++filename3 = "c.txt";
++
++amount = atoi(argv[1]);
++printf(1,"%d\n",amount);
++char buff[amount+1];
++
++fd1 = open(filename1,O_RDWR);
++fd2 = open(filename2,O_RDWR);
++fd3 = open(filename3,O_RDWR);
++
++flag1 = read(fd1,buff,amount);
++flag2 = read(fd2,buff,amount);
++flag3 = read(fd3,buff,amount);
++
++while (flag1>0 || flag2>0 || flag3>0)
++{
++
++//printf(1,"flag1=%d, flag2=%d, flag3=%d \n",flag1,flag2,flag3);
++
++if (flag1>0)
++   flag1 = read(fd1,buff,amount);
++   //printf(1,"%c\n",buff[0]);
++
++if (flag2>0) 
++   flag2 = read(fd2,buff,amount);
++
++if (flag3>0) 
++  flag3 = read(fd3,buff,amount);
++
++}
++
++close(fd1);
++close(fd2);
++close(fd3);
++
++exit();
++} 
+Index: sysfile.c
+===================================================================
+--- sysfile.c	(revision 3)
++++ sysfile.c	(working copy)
+@@ -144,6 +144,59 @@
+   return -1;
+ }
+ 
++/*********************************************************************************/
++
++int
++sys_rename(void)
++{
++  char *path, *new, *old;
++  struct inode *ip, *dp;
++  int off;
++  struct dirent de;
++  uint* offset=0;
++
++  if(argstr(0, &path) < 0 || argstr(1, &old) < 0 || argstr(2, &new) < 0)
++    return -1;
++  if((ip = namei(path)) == 0)
++    return -1;
++
++  ilock(ip);
++  if(ip->type != T_DIR){
++    iunlockput(ip);
++    return -1;
++  }
++
++  dp= dirlookup(ip, new, offset);
++  if (dp!=0) {
++    iunlockput(ip);
++    return -1;
++  }
++
++  dp= dirlookup(ip, old, offset);
++  if (dp==0) {
++    iunlockput(ip);
++    return -1;
++  }
++
++  for(off = 0; off < ip->size; off += sizeof(de)){
++    if(readi(ip, (char*)&de, off, sizeof(de)) != sizeof(de))
++      panic("dirlink read 22222222222");
++    if(!namecmp( de.name, old)) {
++      strncpy(de.name, new, DIRSIZ);
++      if(writei(ip, (char*)&de, off, sizeof(de)) != sizeof(de))
++        panic("dirlink");
++	iunlockput(ip);
++ 	return 0;
++    }
++  }
++
++  iunlockput(ip);
++  return -1;
++}
++
++
++/*********************************************************************************/
++
+ // Is the directory dp empty except for "." and ".." ?
+ static int
+ isdirempty(struct inode *dp)
+Index: buf.h
+===================================================================
+--- buf.h	(revision 3)
++++ buf.h	(working copy)
+@@ -6,6 +6,8 @@
+   struct buf *next;
+   struct buf *qnext; // disk queue
+   uchar data[512];
++  struct buf *hashNext;
++  uint inodeNumber;
+ };
+ #define B_BUSY  0x1  // buffer is locked by some process
+ #define B_VALID 0x2  // buffer has been read from disk
+Index: defs.h
+===================================================================
+--- defs.h	(revision 3)
++++ defs.h	(working copy)
+@@ -9,7 +9,7 @@
+ 
+ // bio.c
+ void            binit(void);
+-struct buf*     bread(uint, uint);
++struct buf*     bread(uint, uint, uint);
+ void            brelse(struct buf*);
+ void            bwrite(struct buf*);
+ 
+Index: createFiles.c
+===================================================================
+--- createFiles.c	(revision 0)
++++ createFiles.c	(revision 0)
+@@ -0,0 +1,42 @@
++#include "types.h"
++#include "stat.h"
++#include "user.h"
++#include "fs.h"
++#include "fcntl.h"
++
++int
++main(int argc, char *argv[]){
++
++int i;
++int fd;
++char *filename1;
++char *filename2;
++char *filename3;
++char buff1 [11];
++
++filename1 = "a.txt";
++filename2 = "b.txt";
++filename3 = "c.txt";
++
++buff1[0]='a';
++fd=open(filename1,O_RDWR |  O_CREATE);
++for(i =0; i<6;i++){
++    write(fd,buff1,1);
++    buff1[0]='G';
++}
++close(fd);
++
++buff1[0]='b';
++fd=open(filename2,O_RDWR |  O_CREATE);
++for(i =0; i<600;i++)
++    write(fd,buff1,1);
++close(fd);
++
++buff1[0]='c';
++fd=open(filename3,O_RDWR |  O_CREATE);
++for(i =0; i<6000;i++)
++    write(fd,buff1,1);
++close(fd);
++
++exit();
++}
+\ No newline at end of file
